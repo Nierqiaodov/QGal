@@ -1,7 +1,5 @@
 # QGal
 
-**Package your visual novel without codes.**
-
 视觉小说引擎 · 编辑器 + 播放器  
 ビジュアルノベルエンジン · エディター + プレイヤー  
 비주얼 노블 엔진 · 에디터 + 플레이어  

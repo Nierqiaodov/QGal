@@ -1,0 +1,302 @@
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>gg.nierqiaodov.QGalMaker</groupId>
+    <artifactId>QGalMaker</artifactId>
+    <version>1.0</version>
+    <!--修缮:jar 打包类型才会真正编译源码(pom 类型不产生任何产物)-->
+    <packaging>jar</packaging>
+    <name>QGal</name>
+    <description>A galGame maker and packager</description>
+    <url>https://nierqiaodov.top</url>
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.44</version>
+            <!--Lombok 只在编译期使用,不打进产物-->
+            <scope>provided</scope>
+        </dependency>
+        <!--mp3 解码(JLayer)-->
+        <dependency>
+            <groupId>com.googlecode.soundlibs</groupId>
+            <artifactId>jlayer</artifactId>
+            <version>1.0.1.4</version>
+        </dependency>
+        <!--ogg vorbis 解码(维护中的 vorbisspi/jorbis 分支,提供 Java 原生音频 SPI)-->
+        <dependency>
+            <groupId>com.github.trilarion</groupId>
+            <artifactId>java-vorbis-support</artifactId>
+            <version>1.2.1</version>
+        </dependency>
+        <!--现代扁平外观(深色主题 + 圆角控件)-->
+        <dependency>
+            <groupId>com.formdev</groupId>
+            <artifactId>flatlaf</artifactId>
+            <version>3.5.4</version>
+        </dependency>
+    </dependencies>
+    <properties>
+        <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <!--========================= 原生打包配置 =========================-->
+        <!--mvn package 会顺带打出免安装 exe(自带运行时);想跳过用 -Dpackage.skip=true-->
+        <!--应用名与主类(生成的 exe 名 = app.name)-->
+        <app.name>QGalMaker</app.name>
+        <app.mainClass>top.nierqiaodov.QGal</app.mainClass>
+        <!--版本号:统一取工程版本,避免界面/pom/打包三处不一致;
+            若用 SNAPSHOT 版本,发布时用 -Dapp.version=1.2 覆盖(jpackage 要求纯数字)-->
+        <app.version>${project.version}</app.version>
+        <package.skip>false</package.skip>
+        <!--运行时需要的模块(java.desktop 提供 Swing/AWT/声音,必须保留)-->
+        <jlink.modules>java.base,java.desktop,java.logging,java.xml,java.prefs,java.naming,java.management,jdk.unsupported</jlink.modules>
+        <!--jlink 压缩参数:JDK 17/20 写 compress=2,JDK 21 及以上建议改成 compress=zip-6-->
+        <jlink.compress>--compress=2</jlink.compress>
+        <!--可执行文件后缀:windows profile 会改成 .exe-->
+        <tool.ext></tool.ext>
+        <jlink.bin>${java.home}/bin/jlink${tool.ext}</jlink.bin>
+        <jpackage.bin>${java.home}/bin/jpackage${tool.ext}</jpackage.bin>
+        <!--打包中间产物与最终输出目录-->
+        <input.dir>${project.build.directory}/package-input</input.dir>
+        <runtime.dir>${project.build.directory}/runtime-image</runtime.dir>
+        <dist.dir>${project.build.directory}/dist</dist.dir>
+    </properties>
+    <build>
+        <!--修缮:本项目源码直接放在 src 下,需要显式指定源码目录-->
+        <sourceDirectory>src</sourceDirectory>
+        <!--把 src/build.properties 过滤进 classpath,程序运行时才能读到版本号-->
+        <resources>
+            <resource>
+                <directory>src</directory>
+                <includes>
+                    <include>build.properties</include>
+                </includes>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.14.1</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <encoding>${project.build.sourceEncoding}</encoding>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>${app.mainClass}</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+            <!--把音频解码库与外观库一起打进可执行 jar(shade 后主产物即 fat jar)-->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>${app.mainClass}</mainClass>
+                                </transformer>
+                                <!--保留解码器的 META-INF/services,否则 ogg 解码不可用-->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--打包步骤 1:把 fat jar 收进 jpackage 的输入目录-->            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>stage-app-input</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${package.skip}</skip>
+                            <outputDirectory>${input.dir}</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.build.directory}</directory>
+                                    <includes>
+                                        <include>${project.build.finalName}.jar</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--打包步骤 2:清输入目录 → jlink 精简运行时 → jpackage 免安装 exe → 绿色压缩包-->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <!--打包步骤 0:清掉上次的输入目录,避免残留旧版本 jar-->
+                    <execution>
+                        <id>clean-package-input</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${package.skip}</skip>
+                            <target>
+                                <delete dir="${input.dir}" quiet="true"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>build-native-app</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${package.skip}</skip>
+                            <target>
+                                <delete dir="${runtime.dir}" quiet="true"/>
+                                <delete dir="${dist.dir}" quiet="true"/>
+
+                                <echo level="info" message="[jlink] 生成精简运行时 -> ${runtime.dir}"/>
+                                <exec executable="${jlink.bin}" failonerror="true">
+                                    <arg value="--add-modules"/>
+                                    <arg value="${jlink.modules}"/>
+                                    <arg value="--strip-debug"/>
+                                    <arg value="--no-header-files"/>
+                                    <arg value="--no-man-pages"/>
+                                    <arg value="${jlink.compress}"/>
+                                    <arg value="--output"/>
+                                    <arg value="${runtime.dir}"/>
+                                </exec>
+
+                                <echo level="info" message="[jpackage] 生成免安装应用目录 -> ${dist.dir}/${app.name}"/>
+                                <exec executable="${jpackage.bin}" failonerror="true">
+                                    <arg value="--type"/>
+                                    <arg value="app-image"/>
+                                    <arg value="--name"/>
+                                    <arg value="${app.name}"/>
+                                    <arg value="--app-version"/>
+                                    <arg value="${app.version}"/>
+                                    <arg value="--runtime-image"/>
+                                    <arg value="${runtime.dir}"/>
+                                    <arg value="--input"/>
+                                    <arg value="${input.dir}"/>
+                                    <arg value="--main-jar"/>
+                                    <arg value="${project.build.finalName}.jar"/>
+                                    <arg value="--main-class"/>
+                                    <arg value="${app.mainClass}"/>
+                                    <arg value="--dest"/>
+                                    <arg value="${dist.dir}"/>
+                                    <arg value="--java-options"/>
+                                    <arg value="-Dfile.encoding=UTF-8"/>
+                                </exec>
+
+                                <echo level="info" message="[zip] 生成绿色分发包"/>
+                                <zip destfile="${dist.dir}/${app.name}-${app.version}-portable.zip"
+                                     basedir="${dist.dir}/${app.name}"
+                                     level="9"/>
+
+                                <echo level="info"
+                                      message="[done] 双击运行: ${dist.dir}/${app.name}/${app.name}${tool.ext}"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!--Windows:补上 exe 后缀-->
+        <profile>
+            <id>windows</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+            </activation>
+            <properties>
+                <tool.ext>.exe</tool.ext>
+            </properties>
+        </profile>
+
+        <!--mvn package -Pinstaller:额外生成 Windows 安装包(需要 WiX 3.x 或 Inno Setup 6)-->
+        <profile>
+            <id>installer</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>build-installer</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                                <configuration>
+                                    <skip>${package.skip}</skip>
+                                    <target>
+                                        <echo level="info"
+                                              message="[jpackage] 生成安装包(需要 WiX 3.x 或 Inno Setup 6)"/>
+                                        <exec executable="${jpackage.bin}" failonerror="true">
+                                            <arg value="--type"/>
+                                            <arg value="msi"/>
+                                            <arg value="--name"/>
+                                            <arg value="${app.name}"/>
+                                            <arg value="--app-version"/>
+                                            <arg value="${app.version}"/>
+                                            <arg value="--runtime-image"/>
+                                            <arg value="${runtime.dir}"/>
+                                            <arg value="--input"/>
+                                            <arg value="${input.dir}"/>
+                                            <arg value="--main-jar"/>
+                                            <arg value="${project.build.finalName}.jar"/>
+                                            <arg value="--main-class"/>
+                                            <arg value="${app.mainClass}"/>
+                                            <arg value="--dest"/>
+                                            <arg value="${dist.dir}"/>
+                                            <arg value="--win-dir-chooser"/>
+                                            <arg value="--win-menu"/>
+                                            <arg value="--win-shortcut"/>
+                                            <arg value="--java-options"/>
+                                            <arg value="-Dfile.encoding=UTF-8"/>
+                                        </exec>
+                                    </target>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

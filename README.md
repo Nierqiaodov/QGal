@@ -1,7 +1,7 @@
 # QGal
 
 视觉小说引擎 · 编辑器 + 播放器  
-Visual Novel Engine · Editor · Player
+Visual Novel Engine · Editor · Player  
 ビジュアルノベルエンジン · エディター + プレイヤー  
 비주얼 노블 엔진 · 에디터 + 플레이어  
 Движок визуальных новелл · Редактор + Плеер
